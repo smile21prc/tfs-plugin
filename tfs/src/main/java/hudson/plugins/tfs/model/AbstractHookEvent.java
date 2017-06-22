@@ -178,7 +178,6 @@ public abstract class AbstractHookEvent {
                 if (triggerResult != null) {
                     result.add(triggerResult);
                 }
-                continue;
             }
             if (!scmFound) {
                 result.add(new GitStatus.MessageResponseContributor("No Git jobs found"));
