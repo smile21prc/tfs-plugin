@@ -182,7 +182,7 @@ public abstract class AbstractHookEvent {
                     }
                     continue;
                 }
-                
+
                 for (final SCM scm : scmTriggerItem.getSCMs()) {
                     if (!(scm instanceof GitSCM)) {
                         continue;
@@ -202,7 +202,7 @@ public abstract class AbstractHookEvent {
 
                         if (!repositoryMatches || git.getExtensions().get(IgnoreNotifyCommit.class)!=null) {
                             continue;
-                        }                      
+                        }
 
                         GitStatus.ResponseContributor triggerResult = triggerJob(gitCodePushedEventArgs, actions, bypassPolling, project, scmTriggerItem);
                         if (triggerResult != null) {
