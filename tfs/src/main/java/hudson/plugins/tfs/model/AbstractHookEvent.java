@@ -167,50 +167,18 @@ public abstract class AbstractHookEvent {
                 LOGGER.severe("Jenkins.getInstance() is null");
                 return result;
             }
-            int totalRepositoryMatches = 0;  
+            int totalRepositoryMatches = 0;
             for (final Item project : Jenkins.getInstance().getAllItems()) {
                 final SCMTriggerItem scmTriggerItem = SCMTriggerItem.SCMTriggerItems.asSCMTriggerItem(project);
-                if (scmTriggerItem == null || scmTriggerItem.getSCMs() == null) {
+                if (scmTriggerItem == null) {
                     continue;
                 }
 
-                if (scmTriggerItem.getSCMs().isEmpty())
-                {
-                    GitStatus.ResponseContributor triggerResult = triggerJob(gitCodePushedEventArgs, actions, bypassPolling, project, scmTriggerItem);
-                    if (triggerResult != null) {
-                        result.add(triggerResult);
-                    }
-                    continue;
+                GitStatus.ResponseContributor triggerResult = triggerJob(gitCodePushedEventArgs, actions, bypassPolling, project, scmTriggerItem);
+                if (triggerResult != null) {
+                    result.add(triggerResult);
                 }
-                
-                for (final SCM scm : scmTriggerItem.getSCMs()) {
-                    if (!(scm instanceof GitSCM)) {
-                        continue;
-                    }
-                    final GitSCM git = (GitSCM) scm;
-                    scmFound = true;
-                    
-                    for (final RemoteConfig repository : git.getRepositories()) {
-                        boolean repositoryMatches = false;
-                        for (final URIish remoteURL : repository.getURIs()) {
-                            if (UriHelper.areSameGitRepo(uri, remoteURL)) {
-                                repositoryMatches = true;
-                                totalRepositoryMatches++;
-                                break;
-                            }
-                        }
-
-                        if (!repositoryMatches || git.getExtensions().get(IgnoreNotifyCommit.class)!=null) {
-                            continue;
-                        }                      
-
-                        GitStatus.ResponseContributor triggerResult = triggerJob(gitCodePushedEventArgs, actions, bypassPolling, project, scmTriggerItem);
-                        if (triggerResult != null) {
-                            result.add(triggerResult);
-                            break;
-                        }
-                    }
-                }
+                continue;
             }
             if (!scmFound) {
                 result.add(new GitStatus.MessageResponseContributor("No Git jobs found"));
