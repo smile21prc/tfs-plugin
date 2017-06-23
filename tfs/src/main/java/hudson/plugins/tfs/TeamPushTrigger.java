@@ -119,7 +119,7 @@ public class TeamPushTrigger extends Trigger<Job<?, ?>> {
             boolean shouldSchedule = bypassPolling;
             String changesDetected = "";
             if (!bypassPolling) {
-                if (runPolling() || gitCodePushedEventArgs.commit != null) {
+                if (runPolling() || StringUtils.isNotBlank(gitCodePushedEventArgs.commit)) {
                     changesDetected = "SCM changes detected in " + job.getFullDisplayName() + ". ";
                     shouldSchedule = true;
                 }
