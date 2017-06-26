@@ -81,66 +81,50 @@ public abstract class AbstractHookEvent {
         return result;
     }
 
-    GitStatus.ResponseContributor triggerJob(final GitCodePushedEventArgs gitCodePushedEventArgs, final List<Action> actions, final boolean bypassPolling, final Item project, final SCMTriggerItem scmTriggerItem) {
-        GitStatus.ResponseContributor gitResponse = null;
-        
+    GitStatus.ResponseContributor triggerJob(final GitCodePushedEventArgs gitCodePushedEventArgs, final List<Action> actions, final boolean bypassPolling, final Item project, final SCMTriggerItem scmTriggerItem) {       
         if (!(project instanceof AbstractProject && ((AbstractProject) project).isDisabled())) {
             if (project instanceof Job) {
-                // TODO: Add default parameters defined in the job
                 final Job job = (Job) project;
                 final int quietPeriod = scmTriggerItem.getQuietPeriod();                
                 
-                boolean triggered = false;
-                if (!triggered) {
-                    final TeamPluginGlobalConfig config = TeamPluginGlobalConfig.get();
-                    if (config.isEnableTeamPushTriggerForAllJobs()) {
-                        triggered = true;
-                        final SCMTrigger scmTrigger = TeamEventsEndpoint.findTrigger(job, SCMTrigger.class);
-                        if (scmTrigger != null && scmTrigger.isIgnorePostCommitHooks()) {
-                            // job has explicitly opted out of hooks
-                            triggered = false;
-                        }
-                    }
-                    if (triggered) {
+                final TeamPluginGlobalConfig config = TeamPluginGlobalConfig.get();
+                final SCMTrigger scmTrigger = TeamEventsEndpoint.findTrigger(job, SCMTrigger.class);                
+                if (config.isEnableTeamPushTriggerForAllJobs()) {
+                    if (scmTrigger == null || !scmTrigger.isIgnorePostCommitHooks()) {
+                        // trigger is null OR job does NOT have explicitly opted out of hooks
                         final TeamPushTrigger trigger = new TeamPushTrigger(job);
                         trigger.execute(gitCodePushedEventArgs, actions, bypassPolling);
                         if (bypassPolling) {
-                            gitResponse = new TeamEventsEndpoint.ScheduledResponseContributor(project);
+                            return new TeamEventsEndpoint.ScheduledResponseContributor(project);
                         }
                         else {
-                            gitResponse = new TeamEventsEndpoint.PollingScheduledResponseContributor(project);
+                            return new TeamEventsEndpoint.PollingScheduledResponseContributor(project);
                         }
                     }
                 }
-                if (!triggered) {
-                    final SCMTrigger scmTrigger = TeamEventsEndpoint.findTrigger(job, SCMTrigger.class);
-                    if (scmTrigger != null && !scmTrigger.isIgnorePostCommitHooks()) {
-                        // queue build without first polling
-                        final Cause cause = new TeamHookCause(gitCodePushedEventArgs.commit);
-                        final CauseAction causeAction = new CauseAction(cause);
-                        final Action[] actionArray = ActionHelper.create(actions, causeAction);
-                        scmTriggerItem.scheduleBuild2(quietPeriod, actionArray);
-                        gitResponse = new TeamEventsEndpoint.ScheduledResponseContributor(project);
-                        triggered = true;
-                    }
+
+                if (scmTrigger != null && !scmTrigger.isIgnorePostCommitHooks()) {
+                    // queue build without first polling
+                    final Cause cause = new TeamHookCause(gitCodePushedEventArgs.commit);
+                    final CauseAction causeAction = new CauseAction(cause);
+                    final Action[] actionArray = ActionHelper.create(actions, causeAction);
+                    scmTriggerItem.scheduleBuild2(quietPeriod, actionArray);
+                    return new TeamEventsEndpoint.ScheduledResponseContributor(project);
                 }
-                if (!triggered) {
-                    final TeamPushTrigger pushTrigger = TeamEventsEndpoint.findTrigger(job, TeamPushTrigger.class);
-                    if (pushTrigger != null) {
-                        pushTrigger.execute(gitCodePushedEventArgs, actions, bypassPolling);
-                        final GitStatus.ResponseContributor response;
-                        if (bypassPolling) {
-                            gitResponse = new TeamEventsEndpoint.ScheduledResponseContributor(project);
-                        }
-                        else {
-                            gitResponse = new TeamEventsEndpoint.PollingScheduledResponseContributor(project);
-                        }
-                        triggered = true;
+
+                final TeamPushTrigger pushTrigger = TeamEventsEndpoint.findTrigger(job, TeamPushTrigger.class);
+                if (pushTrigger != null) {
+                    pushTrigger.execute(gitCodePushedEventArgs, actions, bypassPolling);
+                    if (bypassPolling) {
+                        return new TeamEventsEndpoint.ScheduledResponseContributor(project);
+                    }
+                    else {
+                        return  new TeamEventsEndpoint.PollingScheduledResponseContributor(project);
                     }
                 }
             }
         }
-        return gitResponse;
+        return null;
     }    
     
     // TODO: it would be easiest if pollOrQueueFromEvent built a JSONObject directly
