@@ -120,6 +120,8 @@ public class TeamPushTrigger extends Trigger<Job<?, ?>> {
             boolean shouldSchedule = bypassPolling;
             String changesDetected = "";
             if (!bypassPolling) {
+                // pipeline jobs might have runPolling() returned as false, while still should be scheduled.
+                // we should shedule them as long as they are associated with a valid commit.
                 if (runPolling() || StringUtils.isNotBlank(gitCodePushedEventArgs.commit)) {
                     changesDetected = "SCM changes detected in " + job.getFullDisplayName() + ". ";
                     shouldSchedule = true;
