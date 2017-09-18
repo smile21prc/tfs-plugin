@@ -1,4 +1,3 @@
-//CHECKSTYLE:OFF
 package hudson.plugins.tfs.model;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,6 +11,7 @@ import hudson.plugins.git.GitSCM;
 import hudson.plugins.git.GitStatus;
 import hudson.plugins.git.UserRemoteConfig;
 import hudson.plugins.git.extensions.impl.IgnoreNotifyCommit;
+import hudson.plugins.tfs.JenkinsEventNotifier;
 import hudson.plugins.tfs.TeamEventsEndpoint;
 import hudson.plugins.tfs.TeamGlobalStatusAction;
 import hudson.plugins.tfs.TeamHookCause;
@@ -43,12 +43,25 @@ import java.util.List;
 import java.util.logging.Logger;
 import org.apache.commons.lang.StringUtils;
 
+/**
+ * This class abstracts the hook event.
+ */
 public abstract class AbstractHookEvent {
 
     private static final Logger LOGGER = Logger.getLogger(AbstractHookEvent.class.getName());
 
+    /**
+    * Interface of hook event factory.
+    */
     public interface Factory {
+        /**
+        * Create the factory.
+        */
         AbstractHookEvent create();
+
+        /**
+        * Get sample request payload.
+        */
         String getSampleRequestPayload();
     }
 
@@ -76,8 +89,7 @@ public abstract class AbstractHookEvent {
             try {
                 contributor.writeBody(printWriter);
                 printWriter.flush();
-            }
-            finally {
+            } finally {
                 IOUtils.closeQuietly(printWriter);
             }
             final String contributorMessage = stringWriter.toString();
@@ -87,14 +99,15 @@ public abstract class AbstractHookEvent {
         return result;
     }
 
-    GitStatus.ResponseContributor triggerJob(final GitCodePushedEventArgs gitCodePushedEventArgs, final List<Action> actions, final boolean bypassPolling, final Item project, final SCMTriggerItem scmTriggerItem) {       
+    GitStatus.ResponseContributor triggerJob(final GitCodePushedEventArgs gitCodePushedEventArgs, final List<Action> actions, final boolean bypassPolling, final Item project, final SCMTriggerItem scmTriggerItem) {
         if (!(project instanceof AbstractProject && ((AbstractProject) project).isDisabled())) {
             if (project instanceof Job) {
                 final Job job = (Job) project;
                 final int quietPeriod = scmTriggerItem.getQuietPeriod();
+                final String targetUrl = job.getAbsoluteUrl() + job.getNextBuildNumber();
 
                 final TeamPluginGlobalConfig config = TeamPluginGlobalConfig.get();
-                final SCMTrigger scmTrigger = TeamEventsEndpoint.findTrigger(job, SCMTrigger.class);                
+                final SCMTrigger scmTrigger = TeamEventsEndpoint.findTrigger(job, SCMTrigger.class);
                 if (config.isEnableTeamPushTriggerForAllJobs()) {
                     if (scmTrigger == null || !scmTrigger.isIgnorePostCommitHooks()) {
                         // trigger is null OR job does NOT have explicitly opted out of hooks
@@ -102,8 +115,7 @@ public abstract class AbstractHookEvent {
                         trigger.execute(gitCodePushedEventArgs, actions, bypassPolling);
                         if (bypassPolling) {
                             return new TeamEventsEndpoint.ScheduledResponseContributor(project);
-                        }
-                        else {
+                        } else {
                             return new TeamEventsEndpoint.PollingScheduledResponseContributor(project);
                         }
                     }
@@ -115,52 +127,54 @@ public abstract class AbstractHookEvent {
                     final CauseAction causeAction = new CauseAction(cause);
                     final Action[] actionArray = ActionHelper.create(actions, causeAction);
                     scmTriggerItem.scheduleBuild2(quietPeriod, actionArray);
+                    if (gitCodePushedEventArgs instanceof PullRequestMergeCommitCreatedEventArgs) {
+                        JenkinsEventNotifier.sendPullRequestBuildStatusEvent((PullRequestMergeCommitCreatedEventArgs) gitCodePushedEventArgs, GitStatusState.Pending, "Jenkins CI build queued", targetUrl, job.getAbsoluteUrl());
+                    }
+
                     return new TeamEventsEndpoint.ScheduledResponseContributor(project);
                 }
 
                 boolean shouldRun = false;
-                
-                if (job instanceof WorkflowJob)
-                {
-                    final FlowDefinition jobDef = ((WorkflowJob)job).getDefinition();
-                    if (jobDef instanceof CpsScmFlowDefinition)
-                    {
+
+                if (job instanceof WorkflowJob) {
+                    final FlowDefinition jobDef = ((WorkflowJob) job).getDefinition();
+                    if (jobDef instanceof CpsScmFlowDefinition) {
                         final SCM jobSCM = ((CpsScmFlowDefinition) jobDef).getScm();
-                        if (jobSCM instanceof GitSCM)
-                        {
-                            final GitSCM gitJobSCM = (GitSCM)jobSCM;
+                        if (jobSCM instanceof GitSCM) {
+                            final GitSCM gitJobSCM = (GitSCM) jobSCM;
                             final URIish uri = gitCodePushedEventArgs.getRepoURIish();
 
                             for (final UserRemoteConfig remoteConfig : gitJobSCM.getUserRemoteConfigs()) {
                                 final String jobRepoUrl = remoteConfig.getUrl();
-                                
-                                if (StringUtils.equals(jobRepoUrl, uri.toString())) {
+
+                                if (StringUtils.equalsIgnoreCase(jobRepoUrl, uri.toString())) {
                                     shouldRun = true;
                                     break;
                                 }
-                            }                            
+                            }
                         }
                     }
                 }
-                
-                TeamPushTrigger pushTrigger = TeamEventsEndpoint.findTrigger(job, TeamPushTrigger.class);               
-                if (shouldRun && pushTrigger == null)
-                    pushTrigger = new TeamPushTrigger(job);                            
+
+                TeamPushTrigger pushTrigger = TeamEventsEndpoint.findTrigger(job, TeamPushTrigger.class);
+                if (shouldRun && pushTrigger == null) {
+                    pushTrigger = new TeamPushTrigger(job);
+                }
 
                 if (pushTrigger != null) {
                     pushTrigger.execute(gitCodePushedEventArgs, actions, bypassPolling);
                     if (bypassPolling) {
                         return new TeamEventsEndpoint.ScheduledResponseContributor(project);
-                    }
-                    else {
+                    } else {
                         return  new TeamEventsEndpoint.PollingScheduledResponseContributor(project);
                     }
                 }
             }
         }
+
         return null;
-    }    
-    
+    }
+
     // TODO: it would be easiest if pollOrQueueFromEvent built a JSONObject directly
     List<GitStatus.ResponseContributor> pollOrQueueFromEvent(final GitCodePushedEventArgs gitCodePushedEventArgs, final List<Action> actions, final boolean bypassPolling) {
         List<GitStatus.ResponseContributor> result = new ArrayList<GitStatus.ResponseContributor>();
@@ -193,8 +207,7 @@ public abstract class AbstractHookEvent {
                     continue;
                 }
 
-                if (scmTriggerItem.getSCMs().isEmpty())
-                {
+                if (scmTriggerItem.getSCMs().isEmpty()) {
                     GitStatus.ResponseContributor triggerResult = triggerJob(gitCodePushedEventArgs, actions, bypassPolling, project, scmTriggerItem);
                     if (triggerResult != null) {
                         result.add(triggerResult);
@@ -219,7 +232,7 @@ public abstract class AbstractHookEvent {
                             }
                         }
 
-                        if (!repositoryMatches || git.getExtensions().get(IgnoreNotifyCommit.class)!=null) {
+                        if (!repositoryMatches || git.getExtensions().get(IgnoreNotifyCommit.class) != null) {
                             continue;
                         }
 
@@ -233,16 +246,14 @@ public abstract class AbstractHookEvent {
             }
             if (!scmFound) {
                 result.add(new GitStatus.MessageResponseContributor("No Git jobs found"));
-            }
-            else if (totalRepositoryMatches == 0) {
+            } else if (totalRepositoryMatches == 0) {
                 final String template = "No Git jobs matched the remote URL '%s' requested by an event.";
                 final String message = String.format(template, uri);
                 LOGGER.warning(message);
             }
 
             return result;
-        }
-        finally {
+        } finally {
             SecurityContextHolder.setContext(old);
         }
     }
